@@ -353,6 +353,52 @@ DDL_STATEMENTS = [
         daily_calls INTEGER DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )""",
+
+    # ==================== Delegation & Sign-off Tier ====================
+    # 代跑委托授权：业务组把某个数据集的代跑签认权限一次性借给指定执行人。
+    # 一次性语义：核销后整份授权即作废（余额一并作废），不可拆分、不可复用。
+    """CREATE TABLE IF NOT EXISTS run_delegations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        delegation_no TEXT NOT NULL DEFAULT '',
+        business_group TEXT NOT NULL,
+        executor TEXT NOT NULL,
+        dataset TEXT NOT NULL,
+        quota REAL NOT NULL,
+        status TEXT NOT NULL DEFAULT '生效中' CHECK(status IN ('生效中','已核销','已撤销')),
+        used_run_id INTEGER,
+        used_amount REAL,
+        voided_balance REAL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        consumed_at TEXT,
+        revoked_at TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_delegations_no ON run_delegations(delegation_no)",
+    "CREATE INDEX IF NOT EXISTS idx_delegations_group ON run_delegations(business_group, status)",
+
+    # 签认报销凭证：创建即生效，全字段快照留存，不提供任何修改入口（不能被改签）。
+    # 委托撤销/变更不影响已签凭证；委托归属与实际代跑人凭快照可核对。
+    """CREATE TABLE IF NOT EXISTS signoff_vouchers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        voucher_no TEXT NOT NULL DEFAULT '',
+        delegation_id INTEGER NOT NULL,
+        delegation_no TEXT NOT NULL,
+        business_group TEXT NOT NULL,
+        executor TEXT NOT NULL,
+        dataset TEXT NOT NULL,
+        run_id INTEGER NOT NULL,
+        run_summary TEXT,
+        run_executed_at TEXT,
+        amount REAL NOT NULL,
+        quota_snapshot REAL NOT NULL,
+        voided_balance REAL NOT NULL,
+        status TEXT NOT NULL DEFAULT '已生效' CHECK(status IN ('已生效')),
+        signed_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (delegation_id) REFERENCES run_delegations(id),
+        FOREIGN KEY (run_id) REFERENCES query_log(id)
+    )""",
+    # 每份委托最多核销出一张凭证；每笔运行最多被签认一次（并发双保险）。
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_vouchers_delegation ON signoff_vouchers(delegation_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_vouchers_run ON signoff_vouchers(run_id)",
 ]
 
 
@@ -393,6 +439,25 @@ class AnalyticsDB:
     @contextmanager
     def tx(self) -> Generator[sqlite3.Connection, None, None]:
         conn = self._get_conn()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    @contextmanager
+    def immediate_tx(self) -> Generator[sqlite3.Connection, None, None]:
+        """写事务：BEGIN IMMEDIATE 在事务开启时即取写锁。
+
+        用于一次性签认这类"校验+核销"必须整体串行的场景：并发事务在
+        开启阶段排队，后进入的事务读到的是前者已提交的状态，从根上
+        避免同一份委托被同时核销两次。
+        """
+        conn = self._get_conn()
+        if conn.in_transaction:
+            conn.rollback()
+        conn.execute("BEGIN IMMEDIATE")
         try:
             yield conn
             conn.commit()

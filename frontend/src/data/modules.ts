@@ -222,6 +222,17 @@ export const MODULES: ModuleMeta[] = [
     actionTargets: {"启用Cube": "已启用", "停用Cube": "已停用"},
     metrics: ["Cube总数", "已启用Cube", "存储行数"],
   },
+  {
+    key: "run_delegation",
+    name: "代跑委托签认",
+    entity: "委托授权",
+    desc: "业务组签发一次性代跑委托，绑定执行人、指定数据集与可签额度，核销后余额作废",
+    fields: ["委托方业务组", "被委托执行人", "指定数据集", "可签额度"],
+    statuses: ["生效中", "已核销", "已撤销"],
+    actions: ["撤销委托"],
+    actionTargets: {"撤销委托": "已撤销"},
+    metrics: ["委托总数", "生效中委托", "已核销委托"],
+  },
 ]
 
 export const MODULE_BY_KEY: Map<string, ModuleMeta> = new Map(

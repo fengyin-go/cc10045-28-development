@@ -70,6 +70,21 @@ npm run dev
 | 留存分析 | `retention_analysis` | 留存任务 | 任务名称、行为事件、留存天数 |
 | 漏斗分析器 | `funnel_analyzer` | 漏斗定义 | 漏斗名称、步骤序列、转化窗口小时 |
 | 多维数据集构建 | `cube_builder` | Cube定义 | Cube名称、事实表、维度组合 |
+| 代跑委托签认 | `run_delegation` | 委托授权 | 委托方业务组、被委托执行人、指定数据集、可签额度 |
+
+## 一次性受控签认
+
+查询历史只有执行人和用量，业务组代跑费用凭委托落账的链路如下：
+
+- 业务组在 `run_delegation` 模块签发一次性委托，绑定执行人、指定数据集和可签额度。
+- `GET /api/signoff/usage` 按确证的运行日志计算代跑用量费用（返回行数 × 行费率），并标注已签认/待补办。
+- `POST /api/signoff/sign`（`{delegation_id, run_id}`）由数据报告生成报销凭证：每份授权只能签
+  一整笔运行，核销后余额作废；同一份委托同时被提交也只有一笔成功，另一笔进入
+  `GET /api/signoff/reissue?business_group=…` 待补办清单。
+- 凭证经 `GET /api/signoff/vouchers[/id]` 只读核对：写明本次扣的是哪笔运行、签认金额、
+  作废余额、委托归属与实际代跑人；已签凭证不能被改签，撤销委托不影响其原值。
+
+签认测试：`cd backend && python3 -m unittest discover -s tests -v`
 
 ## 约定
 

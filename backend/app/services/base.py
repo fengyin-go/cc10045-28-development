@@ -39,6 +39,7 @@ class BaseModuleService:
             "retention_analysis": "retention_tasks",
             "funnel_analyzer": "funnels",
             "cube_builder": "cubes",
+            "run_delegation": "run_delegations",
         }
         return table_map.get(self.MODULE, self.MODULE)
 
@@ -226,5 +227,9 @@ def _to_column_name(chinese_field: str) -> str:
         "维度组合": "dimensions",
         "指标计算": "measure_expr",
         "预计算状态": "precomputation_status",
+        "委托方业务组": "business_group",
+        "被委托执行人": "executor",
+        "指定数据集": "dataset",
+        "可签额度": "quota",
     }
     return mapping.get(chinese_field, chinese_field)

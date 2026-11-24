@@ -22,6 +22,7 @@ from app.services.data_api import DataApiService
 from app.services.retention_analysis import RetentionAnalysisService
 from app.services.funnel_analyzer import FunnelAnalyzerService
 from app.services.cube_builder import CubeBuilderService
+from app.services.run_delegation import run_delegation_service
 
 SERVICES: dict[str, BaseModuleService] = {
     "realtime_agg": RealtimeAggService(),
@@ -44,6 +45,7 @@ SERVICES: dict[str, BaseModuleService] = {
     "retention_analysis": RetentionAnalysisService(),
     "funnel_analyzer": FunnelAnalyzerService(),
     "cube_builder": CubeBuilderService(),
+    "run_delegation": run_delegation_service,
 }
 
 

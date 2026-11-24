@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import db
 from app.pipeline import seed_real_data
-from app.routers import ROUTERS, PIPELINE_ROUTER
+from app.routers import ROUTERS, PIPELINE_ROUTER, SIGNOFF_ROUTER
 from app.store import store
 
 app = FastAPI(title="实时数据分析与可视化应用平台", version="1.0.0")
@@ -51,6 +51,9 @@ def overview() -> dict[str, object]:
 
 # 管道路由：数据分析核心入口
 app.include_router(PIPELINE_ROUTER)
+
+# 签认路由：/api/signoff/* 必须注册在通用 /api/{module} 之前
+app.include_router(SIGNOFF_ROUTER)
 
 # 资源路由含 /api/{module}，必须放在 health / overview 之后注册
 for module in ROUTERS:

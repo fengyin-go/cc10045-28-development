@@ -2,6 +2,9 @@
 
 真实数据流：定义报告模板（包含指标集/周期/输出格式）→ pipeline.generate_report 读取最新指标值
 → 组装结构化报告内容 → 写入 report_outputs → 快照管理。
+
+报销凭证：数据报告使用查询历史算出的代跑用量数据，对业务组签发的委托做一次性
+受控签认，生成报销凭证；凭证写明本次扣的是哪笔运行，未签的运行进入待补办清单。
 """
 from __future__ import annotations
 
@@ -11,6 +14,8 @@ from typing import Any
 from app.database import db
 from app.pipeline import generate_report
 from app.services.base import BaseModuleService
+from app.services.query_history import CONFIRMED_RUN_STATUSES, compute_run_fee
+from app.services.run_delegation import run_delegation_service
 
 
 class DataReportService(BaseModuleService):
@@ -89,3 +94,50 @@ class DataReportService(BaseModuleService):
         snapshot["total_reports"] = db.count("reports")
         snapshot["total_outputs"] = db.count("report_outputs")
         return snapshot
+
+    # ------------------------------------------------------------------
+    # 代跑费用报销凭证（一次性受控签认）
+    # ------------------------------------------------------------------
+    def create_reimbursement_voucher(
+        self, delegation_id: int, run_id: int,
+    ) -> tuple[dict[str, Any] | None, str]:
+        """用代跑用量数据对指定运行生成报销凭证。
+
+        签认核心由 run_delegation 服务执行：每份委托只能签一整笔运行，
+        核销后余额作废；同一份委托同时被提交也只能成功一次。
+        """
+        return run_delegation_service.sign_run(delegation_id, run_id)
+
+    def list_vouchers(
+        self, business_group: str | None = None, executor: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """报销凭证列表，可按委托归属业务组或实际代跑人核对。"""
+        return run_delegation_service.list_vouchers(business_group, executor)
+
+    def voucher_detail(self, voucher_id: int) -> dict[str, Any] | None:
+        """凭证详情：本次签认扣的是哪笔运行、金额与作废的授权余额。"""
+        return run_delegation_service.get_voucher(voucher_id)
+
+    def pending_reissue(self, business_group: str) -> list[dict[str, Any]]:
+        """业务组待补办清单：其委托覆盖的执行人×数据集下，确证但未签的运行。"""
+        pairs = db.fetchall(
+            "SELECT DISTINCT executor, dataset FROM run_delegations WHERE business_group=?",
+            [business_group])
+        placeholders = ",".join("?" for _ in CONFIRMED_RUN_STATUSES)
+        items: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        for pair in pairs:
+            rows = db.fetchall(
+                f"""SELECT q.* FROM query_log q
+                    WHERE q.executor=? AND q.dataset=? AND q.status IN ({placeholders})
+                      AND NOT EXISTS (SELECT 1 FROM signoff_vouchers v WHERE v.run_id=q.id)
+                    ORDER BY q.id DESC""",
+                [pair["executor"], pair["dataset"], *CONFIRMED_RUN_STATUSES])
+            for row in rows:
+                if row["id"] in seen:
+                    continue
+                seen.add(row["id"])
+                row["fee"] = compute_run_fee(row)
+                row["signoff_status"] = "待补办"
+                items.append(row)
+        return items
